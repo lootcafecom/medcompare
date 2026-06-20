@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MedCompare India — Live Medicine Price Comparison</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0f1e;--surface:#111827;--surface2:#1a2234;--border:#1e2d45;--accent:#00d4aa;--accent2:#0099ff;--accent3:#ff6b35;--text:#e8f0fe;--muted:#6b7fa3;--warning:#ffb800;--danger:#ff4757}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,170,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,170,.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+.container{max-width:1100px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
+header{padding:22px 0;border-bottom:1px solid var(--border)}
+.hdr{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-icon{width:38px;height:38px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.logo-text{font-family:'Syne',sans-serif;font-size:20px;font-weight:800}
+.logo-text span{color:var(--accent)}
+.live-pill{display:flex;align-items:center;gap:6px;background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.3);border-radius:20px;padding:5px 12px;font-size:12px;color:var(--accent)}
+.ldot{width:6px;height:6px;background:var(--accent);border-radius:50%;animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
+.hero{padding:50px 0 32px;text-align:center}
+.hero-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(0,153,255,.1);border:1px solid rgba(0,153,255,.2);border-radius:20px;padding:5px 14px;font-size:11px;color:var(--accent2);margin-bottom:20px;letter-spacing:.5px;text-transform:uppercase}
+.hero h1{font-family:'Syne',sans-serif;font-size:clamp(28px,5vw,52px);font-weight:800;line-height:1.1;letter-spacing:-1px;margin-bottom:14px}
+.hl{background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero p{color:var(--muted);font-size:16px;max-width:480px;margin:0 auto 36px;line-height:1.6}
+.search-wrap{max-width:660px;margin:0 auto}
+.search-box{display:flex;background:var(--surface);border:1.5px solid var(--border);border-radius:14px;overflow:hidden;transition:border-color .2s,box-shadow .2s}
+.search-box:focus-within{border-color:var(--accent);box-shadow:0 0 0 4px rgba(0,212,170,.1)}
+.si{padding:0 16px;display:flex;align-items:center;color:var(--muted);font-size:17px}
+#inp{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;padding:16px 0}
+#inp::placeholder{color:var(--muted)}
+#btn{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;padding:0 24px;cursor:pointer;white-space:nowrap;transition:opacity .2s}
+#btn:hover{opacity:.9}
+#btn:disabled{opacity:.5;cursor:not-allowed}
+.tags{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px}
+.tag{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-size:12px;color:var(--muted);cursor:pointer;transition:all .2s}
+.tag:hover{border-color:var(--accent);color:var(--accent)}
+.platforms{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;padding:20px 0}
+.pp{display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:7px 12px;font-size:12px;font-weight:500;color:var(--muted)}
+.pd{width:7px;height:7px;border-radius:50%}
+#results{display:none;padding:36px 0}
+.rh{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px}
+.rt{font-family:'Syne',sans-serif;font-size:19px;font-weight:700}
+.rt span{color:var(--accent)}
+.rm{font-size:12px;color:var(--muted);margin-top:4px}
+.sort-bar{display:flex;gap:7px}
+.sb{background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:6px 12px;font-size:12px;color:var(--muted);cursor:pointer;transition:all .2s;font-family:'DM Sans',sans-serif}
+.sb.active,.sb:hover{border-color:var(--accent);color:var(--accent);background:rgba(0,212,170,.05)}
+.best-banner{background:linear-gradient(135deg,rgba(0,212,170,.08),rgba(0,153,255,.08));border:1px solid rgba(0,212,170,.25);border-radius:14px;padding:18px 22px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px}
+.bl{display:flex;align-items:center;gap:14px}
+.blabel{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--accent);font-weight:600}
+.bname{font-family:'Syne',sans-serif;font-size:15px;font-weight:700}
+.bprice{font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--accent)}
+.bsave{font-size:12px;color:var(--muted)}
+.cache-note{font-size:11px;color:var(--warning);margin-top:4px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.card{background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:22px;transition:all .3s;position:relative;overflow:hidden;animation:fadeUp .4s ease forwards;opacity:0;transform:translateY(14px)}
+@keyframes fadeUp{to{opacity:1;transform:translateY(0)}}
+.card:hover{border-color:rgba(0,212,170,.4);transform:translateY(-3px);box-shadow:0 10px 36px rgba(0,212,170,.08)}
+.card.best{border-color:var(--accent);background:linear-gradient(135deg,rgba(0,212,170,.04),var(--surface))}
+.best-tag{position:absolute;top:12px;right:12px;background:var(--accent);color:#000;font-size:9px;font-weight:800;padding:3px 9px;border-radius:20px;letter-spacing:.5px}
+.ctop{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.plogo{width:40px;height:40px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0}
+.pname{font-family:'Syne',sans-serif;font-size:14px;font-weight:700}
+.prating{font-size:11px;color:var(--warning);margin-top:2px}
+.divl{height:1px;background:var(--border);margin:14px 0}
+.prod-name{font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.4;min-height:36px}
+.price-row{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+.pmain{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;line-height:1}
+.pmrp{font-size:12px;color:var(--muted);text-decoration:line-through;margin-bottom:2px}
+.disc{background:rgba(255,107,53,.12);color:var(--accent3);border:1px solid rgba(255,107,53,.25);border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600}
+.buy{width:100%;padding:12px;border-radius:9px;border:none;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all .2s;text-decoration:none;display:block;text-align:center;letter-spacing:.3px}
+.buy.p{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+.buy.s{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.buy:hover{opacity:.88;transform:translateY(-1px)}
+.unavail{text-align:center;padding:10px 0}
+.uico{font-size:24px;margin-bottom:8px}
+.utxt{font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5}
+.spin-center{width:22px;height:22px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;margin:20px auto}
+@keyframes sp{to{transform:rotate(360deg)}}
+.time-badge{font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:3px 8px;margin-left:8px}
+.disc-note{background:rgba(255,184,0,.04);border:1px solid rgba(255,184,0,.18);border-radius:9px;padding:10px 14px;font-size:11px;color:var(--muted);margin-top:20px;line-height:1.5}
+.disc-note strong{color:var(--warning)}
+footer{border-top:1px solid var(--border);padding:20px 0;margin-top:50px;text-align:center;color:var(--muted);font-size:12px}
+footer a{color:var(--accent);text-decoration:none}
+@media(max-width:600px){.hero h1{font-size:26px}.grid{grid-template-columns:1fr}.rh{flex-direction:column}}
+</style>
+</head>
+<body>
+<header>
+  <div class="container">
+    <div class="hdr">
+      <div class="logo">
+        <div class="logo-icon">💊</div>
+        <div class="logo-text">Med<span>Compare</span> <span style="font-size:13px;font-weight:400;color:var(--muted)">India</span></div>
+      </div>
+      <div class="live-pill"><div class="ldot"></div>Live Prices</div>
+    </div>
+  </div>
+</header>
+
+<main>
+<div class="container">
+  <div class="hero">
+    <div class="hero-badge">🇮🇳 India's #1 Medicine Price Tracker</div>
+    <h1>Find the <span class="hl">Cheapest Price</span><br>for Any Medicine</h1>
+    <p>Compare live prices across 5 major Indian pharmacies instantly. No ads. No bias. Just savings.</p>
+    <div class="search-wrap">
+      <div class="search-box">
+        <div class="si">🔍</div>
+        <input type="text" id="inp" placeholder="Search medicine e.g. Dolo 650, Crocin, Metformin..." autocomplete="off"/>
+        <button id="btn" onclick="doSearch()">Compare Prices</button>
+      </div>
+      <div class="tags">
+        <span class="tag" onclick="qs('Dolo 650')">Dolo 650</span>
+        <span class="tag" onclick="qs('Crocin 500')">Crocin 500</span>
+        <span class="tag" onclick="qs('Azithromycin 500')">Azithromycin</span>
+        <span class="tag" onclick="qs('Metformin 500')">Metformin</span>
+        <span class="tag" onclick="qs('Pantoprazole 40')">Pantoprazole</span>
+        <span class="tag" onclick="qs('Vitamin D3')">Vitamin D3</span>
+        <span class="tag" onclick="qs('Amoxicillin 500')">Amoxicillin</span>
+        <span class="tag" onclick="qs('Cetirizine 10mg')">Cetirizine</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="platforms">
+    <span style="font-size:12px;color:var(--muted)">Comparing across:</span>
+    <div class="pp"><div class="pd" style="background:#e8192c"></div>1mg</div>
+    <div class="pp"><div class="pd" style="background:#fb6200"></div>PharmEasy</div>
+    <div class="pp"><div class="pd" style="background:#00a650"></div>NetMeds</div>
+    <div class="pp"><div class="pd" style="background:#0072bc"></div>Apollo</div>
+    <div class="pp"><div class="pd" style="background:#6c3baa"></div>MedKart</div>
+  </div>
+
+  <div id="results">
+    <div class="rh">
+      <div>
+        <div class="rt">Results for "<span id="qt"></span>" <span class="time-badge" id="timeBadge" style="display:none"></span></div>
+        <div class="rm" id="rm">Fetching live prices...</div>
+      </div>
+      <div class="sort-bar">
+        <button class="sb active" onclick="sortBy('price',this)">↑ Price</button>
+        <button class="sb" onclick="sortBy('discount',this)">% Discount</button>
+      </div>
+    </div>
+
+    <div id="bb" class="best-banner" style="display:none">
+      <div class="bl">
+        <span style="font-size:26px">🏆</span>
+        <div>
+          <div class="blabel">Best Deal Found</div>
+          <div class="bname" id="bn"></div>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div class="bprice" id="bp"></div>
+        <div class="bsave" id="bs"></div>
+      </div>
+    </div>
+
+    <div class="grid" id="grid"></div>
+    <div class="disc-note">
+      <strong>⚠️ Note:</strong> Prices are fetched live and may vary by pincode, offers, or stock availability. Always verify the final price before purchasing. MedCompare is independent and not affiliated with any pharmacy.
+    </div>
+  </div>
+</div>
+</main>
+
+<footer>
+  <div class="container">
+    MedCompare India — Helping Indians save on medicines &nbsp;·&nbsp;
+    <a href="/api/health">API Status</a> &nbsp;·&nbsp;
+    <a href="/api/search?q=dolo650">Test API</a>
+  </div>
+</footer>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+// Auto-detect API base URL — works on Railway, Render, and local
+const API_BASE = window.location.origin;
+
+const PHARMACIES = ['1mg','PharmEasy','NetMeds','Apollo Pharmacy','MedKart'];
+const META = {
+  '1mg':            {emoji:'🔴', color:'#e8192c', rating:'4.5★'},
+  'PharmEasy':      {emoji:'🟠', color:'#fb6200', rating:'4.3★'},
+  'NetMeds':        {emoji:'🟢', color:'#00a650', rating:'4.2★'},
+  'Apollo Pharmacy':{emoji:'🔵', color:'#0072bc', rating:'4.4★'},
+  'MedKart':        {emoji:'🟣', color:'#6c3baa', rating:'4.1★'},
+};
+
+let DATA = {}, currentSort = 'price';
+
+// ── Init cards with loading spinners ─────────────────────────────────────────
+function initCards() {
+  document.getElementById('grid').innerHTML = PHARMACIES.map((n,i) => `
+    <div class="card" id="card-${n.replace(/\s/g,'_')}" style="animation-delay:${i*0.07}s">
+      <div class="ctop">
+        <div class="plogo" style="background:${META[n].color}18;border:1px solid ${META[n].color}40">${META[n].emoji}</div>
+        <div><div class="pname">${n}</div><div class="prating">${META[n].rating}</div></div>
+      </div>
+      <div class="divl"></div>
+      <div class="spin-center"></div>
+    </div>`).join('');
+}
+
+// ── Render one card ───────────────────────────────────────────────────────────
+function renderCard(name, data) {
+  const m  = META[name];
+  const p0 = data?.products?.[0];
+
+  const allPrices = PHARMACIES.map(n => DATA[n]?.products?.[0]?.price).filter(Boolean);
+  const bestPrice = allPrices.length ? Math.min(...allPrices) : Infinity;
+  const isBest    = p0 && p0.price === bestPrice && allPrices.length > 1;
+
+  const card = document.getElementById('card-' + name.replace(/\s/g,'_'));
+  if (!card) return;
+  card.className = 'card' + (isBest ? ' best' : '');
+
+  let body = `
+    ${isBest ? '<div class="best-tag">🏆 BEST PRICE</div>' : ''}
+    <div class="ctop">
+      <div class="plogo" style="background:${m.color}18;border:1px solid ${m.color}40">${m.emoji}</div>
+      <div><div class="pname">${name}</div><div class="prating">${m.rating}</div></div>
+    </div>
+    <div class="divl"></div>`;
+
+  if (p0) {
+    const d = p0.mrp > p0.price ? Math.round((1 - p0.price / p0.mrp) * 100) : 0;
+    body += `
+      <div class="prod-name">${p0.name}</div>
+      <div class="price-row">
+        <div>
+          ${p0.mrp > p0.price ? `<div class="pmrp">MRP ₹${(+p0.mrp).toFixed(2)}</div>` : ''}
+          <div class="pmain" style="color:${m.color}">₹${(+p0.price).toFixed(2)}</div>
+        </div>
+        ${d > 0 ? `<div class="disc">${d}% OFF</div>` : ''}
+      </div>
+      <a href="${p0.link}" target="_blank" rel="noopener" class="buy ${isBest?'p':'s'}">
+        ${isBest ? '🛒 Buy — Best Price' : 'View on ' + name + ' →'}
+      </a>`;
+  } else {
+    body += `
+      <div class="unavail">
+        <div class="uico">🔍</div>
+        <div class="utxt">${data?.error ? 'Could not fetch — try manually' : 'Not found on ' + name}</div>
+        <a href="${data?.searchUrl || '#'}" target="_blank" rel="noopener" class="buy s">Search Manually →</a>
+      </div>`;
+  }
+
+  card.innerHTML = body;
+  updateBanner();
+  reorder();
+}
+
+// ── Best deal banner ──────────────────────────────────────────────────────────
+function updateBanner() {
+  const ok = PHARMACIES.map(n => DATA[n]).filter(d => d?.products?.[0]);
+  if (!ok.length) { document.getElementById('bb').style.display = 'none'; return; }
+
+  const best = ok.reduce((a,b) => a.products[0].price < b.products[0].price ? a : b);
+  const max  = ok.reduce((a,b) => a.products[0].price > b.products[0].price ? a : b);
+
+  document.getElementById('bb').style.display = 'flex';
+  document.getElementById('bn').textContent   = `${best.pharmacy} — ${best.products[0].name}`;
+  document.getElementById('bp').textContent   = `₹${(+best.products[0].price).toFixed(2)}`;
+  document.getElementById('bs').textContent   = max.products[0].price > best.products[0].price
+    ? `Save ₹${(max.products[0].price - best.products[0].price).toFixed(2)} vs highest price`
+    : 'Lowest available price';
+
+  const found = PHARMACIES.filter(n => DATA[n]?.products?.[0]).length;
+  const done  = PHARMACIES.filter(n => DATA[n] !== undefined).length;
+  document.getElementById('rm').textContent =
+    `Found prices on ${found} of ${done} pharmacies checked` + (done < PHARMACIES.length ? ' · fetching more...' : ' · Updated just now');
+}
+
+// ── Reorder cards by current sort ────────────────────────────────────────────
+function reorder() {
+  const grid = document.getElementById('grid');
+  [...grid.children].sort((a,b) => {
+    const na = a.id.replace('card-','').replace(/_/g,' ');
+    const nb = b.id.replace('card-','').replace(/_/g,' ');
+    const pa = DATA[na]?.products?.[0];
+    const pb = DATA[nb]?.products?.[0];
+    if (currentSort === 'price') return (pa?.price ?? Infinity) - (pb?.price ?? Infinity);
+    const da = pa ? Math.round((1 - pa.price/(pa.mrp||pa.price))*100) : -1;
+    const db = pb ? Math.round((1 - pb.price/(pb.mrp||pb.price))*100) : -1;
+    return db - da;
+  }).forEach(c => grid.appendChild(c));
+}
+
+// ── Main search ───────────────────────────────────────────────────────────────
+async function doSearch() {
+  const q = document.getElementById('inp').value.trim();
+  if (!q) { document.getElementById('inp').focus(); return; }
+
+  document.getElementById('btn').disabled      = true;
+  document.getElementById('btn').textContent   = 'Searching...';
+  document.getElementById('qt').textContent    = q;
+  document.getElementById('rm').textContent    = 'Fetching live prices...';
+  document.getElementById('bb').style.display  = 'none';
+  document.getElementById('results').style.display = 'block';
+  document.getElementById('timeBadge').style.display = 'none';
+  DATA = {};
+  initCards();
+
+  try {
+    // Call the FastAPI backend — fetches all 5 pharmacies concurrently
+    const res  = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`);
+    const json = await res.json();
+
+    // Populate DATA from response
+    json.results.forEach(r => {
+      DATA[r.pharmacy] = r;
+    });
+
+    // Render all cards
+    PHARMACIES.forEach(name => {
+      const d = DATA[name] || {pharmacy: name, products: [], error: 'No data', searchUrl: '#'};
+      DATA[name] = d;
+      renderCard(name, d);
+    });
+
+    // Show time taken
+    if (json.time_taken) {
+      const tb = document.getElementById('timeBadge');
+      tb.textContent     = json.cached ? '⚡ Cached' : `⏱ ${json.time_taken}s`;
+      tb.style.display   = 'inline';
+    }
+
+    updateBanner();
+
+  } catch(err) {
+    document.getElementById('rm').textContent = '⚠️ Could not connect to API — ' + err.message;
+    document.getElementById('grid').innerHTML = `
+      <div style="grid-column:1/-1;background:rgba(255,71,87,.06);border:1px solid rgba(255,71,87,.2);border-radius:12px;padding:24px;text-align:center">
+        <div style="font-size:28px;margin-bottom:10px">⚠️</div>
+        <strong style="color:var(--danger)">API Error: ${err.message}</strong>
+        <p style="color:var(--muted);font-size:13px;margin-top:8px">Make sure the backend is running at ${API_BASE}</p>
+      </div>`;
+  }
+
+  document.getElementById('btn').disabled    = false;
+  document.getElementById('btn').textContent = 'Compare Prices';
+}
+
+function sortBy(type, btn) {
+  document.querySelectorAll('.sb').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentSort = type;
+  reorder();
+  // Re-render all cards to update best-tag
+  PHARMACIES.forEach(n => { if (DATA[n]) renderCard(n, DATA[n]); });
+}
+
+function qs(t) { document.getElementById('inp').value = t; doSearch(); }
+document.getElementById('inp').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+</script>
+</body>
+</html>
