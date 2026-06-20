@@ -8,8 +8,13 @@ HEADERS = {
     "Accept-Language": "en-IN,en;q=0.9",
     "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Encoding": "gzip, deflate, br",
-    "Connection":      "keep-alive",
 }
+
+def safe_float(val, default=0.0) -> float:
+    try:
+        return float(val) if val is not None else default
+    except Exception:
+        return default
 
 def extract_next_data(html: str) -> dict:
     m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
@@ -20,21 +25,9 @@ def extract_next_data(html: str) -> dict:
             pass
     return {}
 
-def safe_float(val, default=0.0) -> float:
-    try:
-        return float(val) if val is not None else default
-    except Exception:
-        return default
-
 def find_product_list(pp: dict) -> list:
-    """
-    Try every known path to find the product list in pageProps.
-    Based on real debug output from pharmacies.
-    """
     paths = [
-        # Confirmed working path from debug output
         ["productList"],
-        # Common alternate paths
         ["searchResult", "products"],
         ["searchData", "data", "products"],
         ["initialData", "data", "products"],
@@ -42,282 +35,319 @@ def find_product_list(pp: dict) -> list:
         ["searchResults"],
         ["products"],
         ["data", "products"],
-        ["data", "searchResult", "products"],
     ]
     for path in paths:
         val = pp
         for key in path:
-            if isinstance(val, dict):
-                val = val.get(key)
-            else:
-                val = None
+            val = val.get(key) if isinstance(val, dict) else None
+            if val is None:
                 break
         if val and isinstance(val, list) and len(val) > 0:
             return val
     return []
 
-def extract_product(p: dict, pharmacy: str, fallback_url: str) -> dict | None:
-    """Extract product info from a product dict — handles all pharmacy field names"""
-    name = (
-        p.get("name") or
-        p.get("productName") or
-        p.get("medicineName") or
-        p.get("title") or ""
-    )
-
-    price = safe_float(
-        p.get("salePriceDecimal") or   # confirmed from 1mg debug
-        p.get("sellingPrice") or
-        p.get("offerPrice") or
-        p.get("discountedPrice") or
-        p.get("price") or
-        p.get("pricePerUnit")
-    )
-
-    mrp = safe_float(
-        p.get("mrpDecimal") or         # confirmed from 1mg debug
-        p.get("mrpPrice") or
-        p.get("maxPrice") or
-        p.get("mrp") or
-        price
-    )
-
-    slug = (
-        p.get("slug") or
-        p.get("urlKey") or
-        p.get("url_key") or
-        p.get("handle") or
-        str(p.get("productId") or p.get("id") or "")
-    )
-
-    disc = safe_float(
-        p.get("discountPercent") or
-        p.get("discount") or
-        (round((1 - price/mrp) * 100) if mrp > price > 0 else 0)
-    )
-
+def make_product(name, price, mrp, link) -> dict | None:
+    price = safe_float(price)
+    mrp   = safe_float(mrp) or price
     if not name or price <= 0:
         return None
-
-    # Build link per pharmacy
-    links = {
-        "1mg":             f"https://www.1mg.com/drugs/{slug}",
-        "PharmEasy":       f"https://pharmeasy.in/medicines/all/{slug}",
-        "NetMeds":         f"https://www.netmeds.com/prescriptions/{slug}",
-        "Apollo Pharmacy": f"https://www.apollopharmacy.in/medicine/{slug}",
-        "MedKart":         f"https://medkart.in/products/{slug}",
-    }
-
     return {
-        "name":     name,
+        "name":     str(name).strip(),
         "price":    round(price, 2),
         "mrp":      round(mrp, 2),
-        "discount": int(disc),
-        "link":     links.get(pharmacy, fallback_url),
+        "discount": round((1 - price/mrp)*100) if mrp > price else 0,
+        "link":     link,
         "inStock":  True,
     }
 
+# ── 1mg — Custom React SPA, use internal API ──────────────────────────────────
+async def scrape_1mg(query: str, client: httpx.AsyncClient) -> dict:
+    pharmacy = "1mg"
+    base_url = f"https://www.1mg.com/search/all?name={query}"
 
-# ── Generic scraper used by all Next.js pharmacies ────────────────────────────
-async def scrape_nextjs_pharmacy(
-    pharmacy: str,
-    url: str,
-    client: httpx.AsyncClient,
-    fallback_url: str
-) -> dict:
+    apis = [
+        f"https://www.1mg.com/pharmacy_api_gateway/v4/drug_skus/search_by_name?name={query}&page=1&per_page=10",
+        f"https://www.1mg.com/api/v7/drug_skus/search_by_name?name={query}&page=1&per_page=10",
+    ]
+    h = {
+        **HEADERS,
+        "Accept":        "application/json, text/plain, */*",
+        "Referer":       "https://www.1mg.com/",
+        "Origin":        "https://www.1mg.com",
+        "x-app-version": "2.0.3",
+    }
+
+    for api in apis:
+        try:
+            r = await client.get(api, headers=h, timeout=15, follow_redirects=True)
+            if r.status_code == 200:
+                data = r.json()
+                raw  = (
+                    data.get("data", {}).get("skus") or
+                    data.get("data", {}).get("products") or
+                    data.get("skus") or data.get("products") or
+                    data.get("results") or
+                    (data if isinstance(data, list) else [])
+                )
+                products = []
+                for p in raw[:3]:
+                    name  = p.get("name") or p.get("product_name") or ""
+                    price = p.get("selling_price") or p.get("price") or p.get("salePriceDecimal")
+                    mrp   = p.get("mrp") or p.get("mrpDecimal") or price
+                    slug  = p.get("slug") or p.get("url_key") or str(p.get("sku_id") or p.get("id") or "")
+                    prod  = make_product(name, price, mrp, f"https://www.1mg.com/drugs/{slug}")
+                    if prod:
+                        products.append(prod)
+                if products:
+                    return {"pharmacy": pharmacy, "products": products, "searchUrl": api, "error": None}
+        except Exception:
+            continue
+
+    return {"pharmacy": pharmacy, "products": [], "searchUrl": base_url, "error": "1mg API blocked or changed"}
+
+
+# ── PharmEasy — Next.js, working perfectly ────────────────────────────────────
+async def scrape_pharmeasy(query: str, client: httpx.AsyncClient) -> dict:
+    pharmacy = "PharmEasy"
+    url      = f"https://pharmeasy.in/search/all?name={query}"
     try:
-        r = await client.get(url, headers=HEADERS, timeout=20, follow_redirects=True)
-
-        if r.status_code != 200:
-            return {
-                "pharmacy":  pharmacy,
-                "products":  [],
-                "searchUrl": url,
-                "error":     f"HTTP {r.status_code}",
-            }
-
-        html = r.text
-        data = extract_next_data(html)
-
-        if not data:
-            # Try BeautifulSoup DOM fallback
-            return dom_fallback(pharmacy, html, url)
-
+        r    = await client.get(url, headers=HEADERS, timeout=20, follow_redirects=True)
+        data = extract_next_data(r.text)
         pp   = data.get("props", {}).get("pageProps", {})
-        list_ = find_product_list(pp)
+        lst  = find_product_list(pp)
 
         products = []
-        for p in list_[:3]:
-            prod = extract_product(p, pharmacy, url)
+        for p in lst[:3]:
+            name  = p.get("name") or p.get("productName") or ""
+            price = p.get("salePriceDecimal") or p.get("sellingPrice") or p.get("price")
+            mrp   = p.get("mrpDecimal") or p.get("mrp") or price
+            slug  = p.get("slug") or p.get("urlKey") or ""
+            prod  = make_product(name, price, mrp, f"https://pharmeasy.in/medicines/all/{slug}")
             if prod:
                 products.append(prod)
 
-        # If still empty try serverStore (some pharmacies put data there)
-        if not products:
-            server_store = data.get("props", {}).get("pageProps", {}).get("serverStore", {})
-            search_data  = server_store.get("search", {})
-            list2        = search_data.get("products", []) or search_data.get("results", [])
-            for p in list2[:3]:
-                prod = extract_product(p, pharmacy, url)
-                if prod:
-                    products.append(prod)
-
-        if not products:
-            # Last resort — DOM fallback
-            return dom_fallback(pharmacy, html, url)
-
-        return {
-            "pharmacy":  pharmacy,
-            "products":  products,
-            "searchUrl": url,
-            "error":     None,
-        }
-
+        return {"pharmacy": pharmacy, "products": products, "searchUrl": url, "error": None if products else "No products found"}
     except Exception as e:
-        return {
-            "pharmacy":  pharmacy,
-            "products":  [],
-            "searchUrl": url,
-            "error":     str(e),
-        }
+        return {"pharmacy": pharmacy, "products": [], "searchUrl": url, "error": str(e)}
 
 
-def dom_fallback(pharmacy: str, html: str, url: str) -> dict:
-    """BeautifulSoup DOM fallback for non-Next.js or heavily dynamic pages"""
-    products = []
+# ── NetMeds — Fynd/Vue platform, use their search API ────────────────────────
+async def scrape_netmeds(query: str, client: httpx.AsyncClient) -> dict:
+    pharmacy = "NetMeds"
+    base_url = f"https://www.netmeds.com/catalogsearch/result?q={query}"
+
+    # Netmeds uses Fynd platform — try their API endpoints
+    apis = [
+        f"https://www.netmeds.com/api/v1/listing/products?q={query}&limit=5&page_no=1",
+        f"https://api.netmeds.com/api/v1/catalog/listing?q={query}&limit=5",
+        f"https://www.netmeds.com/api/search?q={query}&limit=5",
+        # Fynd API pattern
+        f"https://www.netmeds.com/ext/api/v1.0/search/?q={query}&category=pharmacy",
+    ]
+
+    h = {**HEADERS, "Accept": "application/json", "Referer": "https://www.netmeds.com/"}
+
+    for api in apis:
+        try:
+            r = await client.get(api, headers=h, timeout=15, follow_redirects=True)
+            if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
+                data  = r.json()
+                items = (
+                    data.get("data", {}).get("products") or
+                    data.get("products") or
+                    data.get("items") or
+                    data.get("results") or []
+                )
+                products = []
+                for p in items[:3]:
+                    name  = p.get("name") or p.get("display_name") or p.get("title") or ""
+                    price = p.get("selling_price") or p.get("price") or p.get("effective", {}).get("effective") or 0
+                    mrp   = p.get("mrp") or p.get("marked") or price
+                    slug  = p.get("url_key") or p.get("slug") or p.get("sku") or ""
+                    prod  = make_product(name, price, mrp, f"https://www.netmeds.com/prescriptions/{slug}")
+                    if prod:
+                        products.append(prod)
+                if products:
+                    return {"pharmacy": pharmacy, "products": products, "searchUrl": api, "error": None}
+        except Exception:
+            continue
+
+    # HTML regex fallback — NetMeds embeds JSON in script tags
     try:
-        soup = BeautifulSoup(html, "lxml")
+        r    = await client.get(base_url, headers=HEADERS, timeout=20, follow_redirects=True)
+        html = r.text
 
-        # Generic price extraction from any structured page
-        selectors = [
-            (".cat-item", ".clsgetname", ".final-price", ".price-before-discount"),
-            (".product-item", "[class*='name']", "[class*='price']", "s"),
-            ("[class*='ProductCard']", "[class*='name']", "[class*='price']", "s"),
-            ("[class*='product-card']", "[class*='name']", "[class*='price']", "del"),
+        # Try to find product JSON blocks
+        patterns = [
+            r'"name"\s*:\s*"([^"]+)"[^}]{0,200}"selling_price"\s*:\s*"?(\d+\.?\d*)"?[^}]{0,100}"mrp"\s*:\s*"?(\d+\.?\d*)"?',
+            r'"display_name"\s*:\s*"([^"]+)"[^}]{0,200}"effective"\s*:\s*(\d+\.?\d*)[^}]{0,100}"marked"\s*:\s*(\d+\.?\d*)',
+            r'"product_name"\s*:\s*"([^"]+)"[^}]{0,200}"price"\s*:\s*(\d+\.?\d*)',
         ]
-
-        for card_sel, name_sel, price_sel, mrp_sel in selectors:
-            cards = soup.select(card_sel)
-            if not cards:
-                continue
-            for card in cards[:3]:
-                name_el  = card.select_one(name_sel)
-                price_el = card.select_one(price_sel)
-                mrp_el   = card.select_one(mrp_sel)
-                href_el  = card.select_one("a")
-
-                if not name_el or not price_el:
-                    continue
-
-                name  = name_el.get_text(strip=True)
-                price = safe_float(re.sub(r"[^\d.]", "", price_el.get_text()))
-                mrp   = safe_float(re.sub(r"[^\d.]", "", mrp_el.get_text())) if mrp_el else price
-                link  = href_el.get("href", url) if href_el else url
-
-                if name and price > 0:
-                    products.append({
-                        "name":     name,
-                        "price":    round(price, 2),
-                        "mrp":      round(mrp, 2),
-                        "discount": round((1 - price/mrp)*100) if mrp > price else 0,
-                        "link":     link if link.startswith("http") else url,
-                        "inStock":  True,
-                    })
-            if products:
-                break
-
+        for pat in patterns:
+            matches = re.findall(pat, html)
+            if matches:
+                products = []
+                for m in matches[:3]:
+                    name  = m[0]
+                    price = m[1]
+                    mrp   = m[2] if len(m) > 2 else m[1]
+                    prod  = make_product(name, price, mrp, base_url)
+                    if prod:
+                        products.append(prod)
+                if products:
+                    return {"pharmacy": pharmacy, "products": products, "searchUrl": base_url, "error": None}
     except Exception:
         pass
 
-    return {
-        "pharmacy":  pharmacy,
-        "products":  products,
-        "searchUrl": url,
-        "error":     None if products else "Could not find products on page",
+    return {"pharmacy": pharmacy, "products": [], "searchUrl": base_url, "error": "NetMeds API not reachable"}
+
+
+# ── Apollo — Returns 403, use alternate endpoint ──────────────────────────────
+async def scrape_apollo(query: str, client: httpx.AsyncClient) -> dict:
+    pharmacy = "Apollo Pharmacy"
+    base_url = f"https://www.apollopharmacy.in/search-medicines/{query}"
+
+    # Apollo blocks direct requests — try their CDN/API endpoints
+    apis = [
+        # Apollo uses these internal endpoints
+        f"https://www.apollopharmacy.in/api/product/search?q={query}&limit=5",
+        f"https://apollopharmacy.in/api/v1/search?q={query}",
+        # Apollo 247 is their alternate domain — less strict
+        f"https://www.apollo247.com/api/search?q={query}&limit=5",
+        f"https://api.apollo247.com/api/v1/search/products?q={query}",
+    ]
+
+    h = {
+        **HEADERS,
+        "Accept":  "application/json",
+        "Referer": "https://www.apollopharmacy.in/",
+        "Origin":  "https://www.apollopharmacy.in",
     }
 
-
-# ── Individual pharmacy scrapers ──────────────────────────────────────────────
-
-async def scrape_1mg(query: str, client: httpx.AsyncClient) -> dict:
-    url = f"https://www.1mg.com/search/all?name={query}"
-    return await scrape_nextjs_pharmacy("1mg", url, client, url)
-
-
-async def scrape_pharmeasy(query: str, client: httpx.AsyncClient) -> dict:
-    url = f"https://pharmeasy.in/search/all?name={query}"
-    return await scrape_nextjs_pharmacy("PharmEasy", url, client, url)
-
-
-async def scrape_netmeds(query: str, client: httpx.AsyncClient) -> dict:
-    url = f"https://www.netmeds.com/catalogsearch/result?q={query}"
-    result = await scrape_nextjs_pharmacy("NetMeds", url, client, url)
-
-    # NetMeds extra fallback — legacy JSON in script tags
-    if not result["products"]:
+    for api in apis:
         try:
-            r    = await client.get(url, headers=HEADERS, timeout=20, follow_redirects=True)
-            html = r.text
-
-            # NetMeds embeds product JSON differently
-            patterns = [
-                r'"name"\s*:\s*"([^"]+)"[^}]+"selling_price"\s*:\s*"?(\d+\.?\d*)"?[^}]+"mrp"\s*:\s*"?(\d+\.?\d*)"?',
-                r'"product_name"\s*:\s*"([^"]+)"[^}]+"price"\s*:\s*"?(\d+\.?\d*)"?[^}]+"special_price"\s*:\s*"?(\d+\.?\d*)"?',
-            ]
-            for pat in patterns:
-                matches = re.findall(pat, html)
-                if matches:
-                    name, price, mrp = matches[0]
-                    result["products"] = [{
-                        "name":     name,
-                        "price":    round(safe_float(price), 2),
-                        "mrp":      round(safe_float(mrp), 2),
-                        "discount": round((1 - safe_float(price)/safe_float(mrp))*100) if safe_float(mrp) > safe_float(price) else 0,
-                        "link":     url,
-                        "inStock":  True,
-                    }]
-                    result["error"] = None
-                    break
+            r = await client.get(api, headers=h, timeout=15, follow_redirects=True)
+            if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
+                data  = r.json()
+                items = (
+                    data.get("data", {}).get("products") or
+                    data.get("products") or data.get("results") or
+                    data.get("data") or []
+                )
+                if isinstance(items, dict):
+                    items = items.get("products") or []
+                products = []
+                for p in items[:3]:
+                    name  = p.get("name") or p.get("productName") or p.get("title") or ""
+                    price = p.get("offerPrice") or p.get("sellingPrice") or p.get("price") or 0
+                    mrp   = p.get("mrpPrice") or p.get("mrp") or price
+                    slug  = p.get("urlKey") or p.get("slug") or str(p.get("productId") or "")
+                    prod  = make_product(name, price, mrp, f"https://www.apollopharmacy.in/medicine/{slug}")
+                    if prod:
+                        products.append(prod)
+                if products:
+                    return {"pharmacy": pharmacy, "products": products, "searchUrl": api, "error": None}
         except Exception:
-            pass
+            continue
 
-    return result
+    # Try with mobile user agent — Apollo sometimes allows mobile
+    try:
+        mobile_headers = {
+            **HEADERS,
+            "User-Agent": "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36",
+            "Accept":     "text/html,application/xhtml+xml,*/*;q=0.8",
+        }
+        r    = await client.get(base_url, headers=mobile_headers, timeout=20, follow_redirects=True)
+        html = r.text
+        if r.status_code == 200 and len(html) > 1000:
+            data = extract_next_data(html)
+            pp   = data.get("props", {}).get("pageProps", {})
+            lst  = find_product_list(pp)
+            products = []
+            for p in lst[:3]:
+                name  = p.get("name") or p.get("productName") or ""
+                price = p.get("offerPrice") or p.get("sellingPrice") or p.get("price")
+                mrp   = p.get("mrpPrice") or p.get("mrp") or price
+                slug  = p.get("urlKey") or p.get("slug") or str(p.get("productId") or "")
+                prod  = make_product(name, price, mrp, f"https://www.apollopharmacy.in/medicine/{slug}")
+                if prod:
+                    products.append(prod)
+            if products:
+                return {"pharmacy": pharmacy, "products": products, "searchUrl": base_url, "error": None}
+    except Exception:
+        pass
+
+    return {"pharmacy": pharmacy, "products": [], "searchUrl": base_url, "error": "Apollo blocks server requests (403)"}
 
 
-async def scrape_apollo(query: str, client: httpx.AsyncClient) -> dict:
-    url = f"https://www.apollopharmacy.in/search-medicines/{query}"
-    return await scrape_nextjs_pharmacy("Apollo Pharmacy", url, client, url)
-
-
+# ── MedKart — Next.js App Router, use their search API ───────────────────────
 async def scrape_medkart(query: str, client: httpx.AsyncClient) -> dict:
-    url = f"https://medkart.in/search?q={query}"
-    result = await scrape_nextjs_pharmacy("MedKart", url, client, url)
+    pharmacy = "MedKart"
+    base_url = f"https://medkart.in/search?q={query}"
 
-    # MedKart Shopify fallback — prices stored in paise (divide by 100)
-    if not result["products"]:
+    # MedKart uses Next.js App Router — try their API routes
+    apis = [
+        # Next.js App Router API routes
+        f"https://medkart.in/api/search?q={query}&limit=5",
+        f"https://medkart.in/api/products/search?q={query}",
+        # Shopify-style endpoints
+        f"https://medkart.in/search?type=product&q={query}&view=json",
+        f"https://medkart.in/search.json?type=product&q={query}&limit=5",
+        # Generic product search
+        f"https://medkart.in/api/v1/products/search?name={query}",
+    ]
+
+    h = {**HEADERS, "Accept": "application/json", "Referer": "https://medkart.in/"}
+
+    for api in apis:
         try:
-            shopify_url = f"https://medkart.in/search?type=product&q={query}&view=json"
-            r = await client.get(shopify_url, headers=HEADERS, timeout=15, follow_redirects=True)
+            r = await client.get(api, headers=h, timeout=15, follow_redirects=True)
             if r.status_code == 200:
-                items = r.json()
-                if isinstance(items, list):
-                    for item in items[:3]:
-                        name  = item.get("title", "")
-                        price = safe_float(item.get("price", 0)) / 100
-                        mrp   = safe_float(item.get("compare_at_price") or item.get("price", 0)) / 100
-                        slug  = item.get("handle", "")
-                        if name and price > 0:
-                            result["products"].append({
-                                "name":     name,
-                                "price":    round(price, 2),
-                                "mrp":      round(mrp, 2),
-                                "discount": round((1-price/mrp)*100) if mrp > price else 0,
-                                "link":     f"https://medkart.in/products/{slug}",
-                                "inStock":  True,
-                            })
-                    if result["products"]:
-                        result["error"] = None
+                ct = r.headers.get("content-type", "")
+                if "json" not in ct:
+                    continue
+                data  = r.json()
+                items = (
+                    data.get("products") or data.get("results") or
+                    data.get("data") or
+                    (data if isinstance(data, list) else [])
+                )
+                if isinstance(items, dict):
+                    items = items.get("products") or []
+                products = []
+                for p in items[:3]:
+                    name  = p.get("title") or p.get("name") or ""
+                    price = safe_float(p.get("price") or p.get("sellingPrice") or 0)
+                    price = price / 100 if price > 10000 else price
+                    mrp   = safe_float(p.get("compare_at_price") or p.get("mrp") or price)
+                    mrp   = mrp / 100 if mrp > 10000 else mrp
+                    slug  = p.get("handle") or p.get("slug") or ""
+                    prod  = make_product(name, price, mrp, f"https://medkart.in/products/{slug}")
+                    if prod:
+                        products.append(prod)
+                if products:
+                    return {"pharmacy": pharmacy, "products": products, "searchUrl": api, "error": None}
         except Exception:
-            pass
+            continue
 
-    return result
+    # Try fetching HTML and look for inline JSON
+    try:
+        r    = await client.get(base_url, headers=HEADERS, timeout=20, follow_redirects=True)
+        html = r.text
+        # Look for inline product data in script tags
+        m = re.search(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', html, re.DOTALL)
+        if m:
+            raw = m.group(1).encode().decode('unicode_escape')
+            # Try to extract price patterns
+            prices = re.findall(r'"price"\s*:\s*(\d+)', raw)
+            names  = re.findall(r'"name"\s*:\s*"([^"]+)"', raw)
+            if names and prices:
+                price = safe_float(prices[0])
+                price = price / 100 if price > 10000 else price
+                prod  = make_product(names[0], price, price, base_url)
+                if prod:
+                    return {"pharmacy": pharmacy, "products": [prod], "searchUrl": base_url, "error": None}
+    except Exception:
+        pass
+
+    return {"pharmacy": pharmacy, "products": [], "searchUrl": base_url, "error": "MedKart API not accessible"}
