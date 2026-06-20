@@ -120,3 +120,77 @@ async def root():
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):
     return FileResponse("static/index.html")
+
+
+# ── Debug endpoint — shows raw __NEXT_DATA__ structure ───────────────────────
+@app.get("/api/debug/{pharmacy_name}")
+async def debug_pharmacy(pharmacy_name: str, q: str = Query(..., min_length=1)):
+    """Shows raw JSON structure from pharmacy page for debugging"""
+
+    urls = {
+        "1mg":      f"https://www.1mg.com/search/all?name={q}",
+        "pharmeasy":f"https://pharmeasy.in/search/all?name={q}",
+        "netmeds":  f"https://www.netmeds.com/catalogsearch/result?q={q}",
+        "apollo":   f"https://www.apollopharmacy.in/search-medicines/{q}",
+        "medkart":  f"https://medkart.in/search?q={q}",
+    }
+
+    url = urls.get(pharmacy_name.lower())
+    if not url:
+        return {"error": "Unknown pharmacy"}
+
+    async with httpx.AsyncClient(
+        timeout=25.0,
+        follow_redirects=True,
+        headers={
+            "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept-Language": "en-IN,en;q=0.9",
+        }
+    ) as client:
+        r = await client.get(url)
+
+    html      = r.text
+    html_size = len(html)
+
+    import re, json
+
+    # Extract __NEXT_DATA__
+    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
+    if not m:
+        # Check what script tags exist
+        scripts = re.findall(r'<script[^>]*>', html)
+        return {
+            "html_size":   html_size,
+            "next_data":   False,
+            "script_tags": scripts[:20],
+            "html_sample": html[:2000],
+        }
+
+    try:
+        nd   = json.loads(m.group(1))
+        pp   = nd.get("props", {}).get("pageProps", {})
+
+        # Show top level keys and their types/sizes
+        def summarize(obj, depth=0):
+            if depth > 3:
+                return "..."
+            if isinstance(obj, dict):
+                return {k: summarize(v, depth+1) for k, v in list(obj.items())[:20]}
+            elif isinstance(obj, list):
+                return f"[list of {len(obj)} items] first_keys={list(obj[0].keys())[:15] if obj and isinstance(obj[0], dict) else '?'}"
+            else:
+                return str(obj)[:100]
+
+        return {
+            "html_size":        html_size,
+            "next_data_size":   len(m.group(1)),
+            "next_data_found":  True,
+            "pageProps_keys":   list(pp.keys()),
+            "pageProps_summary": summarize(pp),
+        }
+    except Exception as e:
+        return {
+            "html_size": html_size,
+            "error":     str(e),
+            "raw_sample": m.group(1)[:500] if m else None,
+        }
